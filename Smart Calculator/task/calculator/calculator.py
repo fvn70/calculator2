@@ -1,68 +1,77 @@
 import re
 
 
-def parse(str):
-    str = str.replace('=', ' = ')
-    str = str.replace('---', '-')
-    str = str.replace('--', '+')
-    str = re.sub('[+]+', '+', str)
-    str = re.sub('\\s+', ' ', str)
-    return str
+def to_int(num):
+    return eval(num) if is_num(num) else vars[num]
 
 
 def is_num(num):
-    return re.match('[-+]?[0-9]+\\b', num)
+    return re.match('[-+]?[0-9.]+\\b', num)
 
 
 def is_var(ss):
     return ss.isalpha()
 
 
-def calc(exp):
-    res = 0
-    op = '+'
-    for s in exp.split(' '):
-        if s in '+-':
-            op = s
-        else:
-            if is_var(s):
-                s = str(vars[s])
-            if op == '+':
-                res += int(s)
-            elif op == '-':
-                res -= int(s)
-            else:
-                res = int(s)
-    return res
+def parse(str):
+    str = str.replace('=', ' = ')
+    str = str.replace('---', '-')
+    str = str.replace('--', '+')
+    str = re.sub('[+]+', '+', str)
+    str = re.sub('[*/]{2,}', '##', str)
+    for w in '+*/()=':
+        str = str.replace(w, f' {w} ')
+    str = re.sub('\\s+', ' ', str)
+    return str.strip()
 
 
 def isvalid(exp):
     parts = exp.split(' ')
-    i = 0
-    is_ass = '=' in exp
     try:
         if parts.count('=') > 1:
             raise Exception('Invalid assignment')
-        if len(parts) == 1 and not is_num(exp):
-            if not is_var(exp):
-                raise Exception('Invalid identifier')
-            elif exp not in vars:
-                raise Exception('Unknown variable')
-        for p in parts:
-            if is_ass and i % 2 == 0 and not is_var(p):
-                if i == 0:
-                    raise Exception('Invalid identifier')
-                elif not is_num(p):
-                    raise Exception('Invalid assignment')
-            if i % 2 == 0 and not (is_var(p) or is_num(p)):
-                raise Exception("Invalid expression")
-            if i % 2 != 0 and not p in '+-=':
-                raise Exception("Invalid expression")
-            i += 1
+        if re.match(".*[#*/]{2,}", exp):
+            raise Exception('Invalid expression')
+        if parts.count('(') != parts.count(')'):
+            raise Exception('Invalid expression')
         return True
     except Exception as err:
         print(err)
         return False
+
+
+def calc(exp):
+    res = 0
+    is_calc = False
+    is_ass = False
+    p = []  # stack
+    for s in exp:
+        if s in '+-*/=':
+            is_calc = True
+            is_ass = is_ass or s == '='
+            op1 = p[-2]
+            op2 = p[-1]
+            if s == '=':
+                assign(op1, op2)
+            else:
+                o1 = to_int(op1)
+                o2 = to_int(op2)
+                res = eval(str(o1) + s + str(o2))
+            p.pop()
+            p[-1] = str(res)
+        else:
+            p.append(s)
+    if not is_calc:
+        v = p[-1]
+        if is_num(v):
+            res = v
+        elif v in vars:
+            res = vars[v]
+        else:
+            print("Unknown variable")
+            return
+    if not is_ass:
+        print(round(res))
 
 
 def assign(key, val):
@@ -78,7 +87,48 @@ def assign(key, val):
         print(err)
 
 
+def push_by_prior(w):
+    # add an operation w to stack or postfix in accordance with prior
+    if len(stack) > 0:
+        st = stack[-1]
+        while prior[w] <= prior[st]:
+            st = stack.pop()
+            postfix.append(st)
+            if len(stack) == 0:
+                break
+            st = stack[-1]
+        stack.append(w)
+    else:
+        stack.append(w)
+
+
+def infix_to_postfix(exp):
+    infix = exp.split(' ')
+    postfix.clear()
+    for w in infix:
+        if w in '(=':
+            stack.append(w)
+        elif w == ')':
+            while len(stack) > 0 and stack[-1] != '(':
+                postfix.append(stack.pop())
+            if len(stack) > 0:
+                stack.pop()
+            else:
+                postfix.append(w)
+        elif w in '+-*/':
+            push_by_prior(w)
+        elif w != ' ':
+            postfix.append(w)
+    while len(stack) > 0:
+        postfix.append(stack.pop())
+    if '(' in postfix or ')' in postfix:
+        postfix.clear()
+
+
 vars = {}
+stack = []
+postfix = []
+prior = {'(': 0, ')': 0, '+': 1, '-': 1, '*': 2, '/': 2}
 
 while True:
     cmd = input().strip()
@@ -92,9 +142,6 @@ while True:
         else:
             exp = parse(cmd)
             if isvalid(exp):
-                if '=' in exp:
-                    e = exp.split(' ')
-                    assign(e[0], e[2])
-                else:
-                    print(calc(exp))
+                infix_to_postfix(exp)
+                calc(postfix)
 print('Bye!')
